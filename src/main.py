@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import csv
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 
 def scrape_soybean_prices(date):
     url = f"https://www.noticiasagricolas.com.br/cotacoes/soja/soja-bolsa-de-chicago-cme-group/{date}"
@@ -46,15 +47,6 @@ def save_to_csv(rows, month_dir, month):
 
     print(f"Dados salvos em {filename}")
 
-def get_date_input(prompt):
-    while True:
-        date = input(prompt)
-        try:
-            day, month, year = map(int, date.split('/'))
-            return f"{year}-{month:02d}-{day:02d}"
-        except ValueError:
-            print("Data inválida. Use o formato DD/MM/AAAA.")
-
 def generate_date_range(start_date, end_date):
     start = datetime.strptime(start_date, "%Y-%m-%d")
     end = datetime.strptime(end_date, "%Y-%m-%d")
@@ -67,27 +59,31 @@ def generate_date_range(start_date, end_date):
 
     return dates
 
+def process_date(date, base_dir):
+    month = datetime.strptime(date, "%Y-%m-%d").strftime("%Y-%m")
+    month_dir = os.path.join(base_dir, month)
+
+    if not os.path.exists(month_dir):
+        os.makedirs(month_dir)
+
+    result = scrape_soybean_prices(date)
+    if result:
+        save_to_csv(result, month_dir, month)
+
 if __name__ == "__main__":
-    start_date = get_date_input("Digite a data de início (DD/MM/AAAA): ")
-    end_date = get_date_input("Digite a data final (DD/MM/AAAA): ")
+    start_date = input("Digite a data de início (DD/MM/AAAA): ")
+    end_date = input("Digite a data final (DD/MM/AAAA): ")
+
+    start_date = datetime.strptime(start_date, "%d/%m/%Y").strftime("%Y-%m-%d")
+    end_date = datetime.strptime(end_date, "%d/%m/%Y").strftime("%Y-%m-%d")
 
     date_range = generate_date_range(start_date, end_date)
-
     base_dir = 'data'
-    
+
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
 
-    for date in date_range:
-        print(f"Coletando dados para {date}...")
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        executor.map(lambda date: process_date(date, base_dir), date_range)
 
-        month = datetime.strptime(date, "%Y-%m-%d").strftime("%Y-%m")
-
-        month_dir = os.path.join(base_dir, month)
-
-        if not os.path.exists(month_dir):
-            os.makedirs(month_dir)
-
-        result = scrape_soybean_prices(date)
-        if result:
-            save_to_csv(result, month_dir, month)
+    print("Coleta de dados concluída!")
